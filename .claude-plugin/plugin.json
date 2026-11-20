@@ -1,0 +1,19 @@
+{
+  "name": "goldbar",
+  "version": "0.1.0",
+  "description": "A gold band above the Claude Code prompt showing your 5-hour, weekly and Fable usage limits as day pills that pulse while Claude works.",
+  "types": "./types/index.d.ts",
+  "author": {
+    "name": "brashProfile"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/brashProfile/goldbar",
+  "repository": "https://github.com/brashProfile/goldbar",
+  "keywords": [
+    "usage",
+    "limits",
+    "status",
+    "band"
+  ],
+  "icon": "./.claude-plugin/icon.png"
+}

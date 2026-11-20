@@ -1,0 +1,13 @@
+{
+  "name": "goldbar",
+  "owner": {
+    "name": "brashProfile"
+  },
+  "plugins": [
+    {
+      "name": "goldbar",
+      "source": "./",
+      "description": "A gold band above the Claude Code prompt showing your 5-hour, weekly and Fable usage limits as day pills that pulse while Claude works."
+    }
+  ]
+}
