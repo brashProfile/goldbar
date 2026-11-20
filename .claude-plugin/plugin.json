@@ -1,7 +1,7 @@
 {
   "name": "goldbar",
-  "version": "0.1.0",
-  "description": "A gold band above the Claude Code prompt showing your 5-hour, weekly and Fable usage limits as day pills that pulse while Claude works.",
+  "version": "0.2.0",
+  "description": "A gold band above the Claude Code prompt showing your 5-hour, weekly and per-model usage limits as pills that pulse while Claude works, plus a spinner for background tasks. Colors, labels and pill counts are configurable.",
   "types": "./types/index.d.ts",
   "author": {
     "name": "brashProfile"
@@ -15,5 +15,127 @@
     "status",
     "band"
   ],
-  "icon": "./.claude-plugin/icon.png"
+  "icon": "./.claude-plugin/icon.png",
+  "userConfig": {
+    "showBackground": {
+      "type": "boolean",
+      "title": "Show background tasks",
+      "description": "Spinner and count of running background tasks, at the left.",
+      "default": true
+    },
+    "showSession": {
+      "type": "boolean",
+      "title": "Show 5-hour bar",
+      "description": "The rolling 5-hour session limit.",
+      "default": true
+    },
+    "showWeekly": {
+      "type": "boolean",
+      "title": "Show weekly bar",
+      "description": "The all-models weekly limit.",
+      "default": true
+    },
+    "showModel": {
+      "type": "boolean",
+      "title": "Show model bar",
+      "description": "One model's own weekly limit (see Model name).",
+      "default": true
+    },
+    "sessionLabel": {
+      "type": "string",
+      "title": "5-hour label",
+      "description": "Label for the 5-hour bar.",
+      "default": "5-hour"
+    },
+    "weeklyLabel": {
+      "type": "string",
+      "title": "Weekly label",
+      "description": "Label for the weekly bar.",
+      "default": "Weekly"
+    },
+    "modelName": {
+      "type": "string",
+      "title": "Model name",
+      "description": "Which model's weekly limit the third bar shows, as /usage names it (Fable, Opus, Sonnet).",
+      "default": "Fable"
+    },
+    "sessionPills": {
+      "type": "number",
+      "title": "5-hour pills",
+      "description": "Pills in the 5-hour bar (1 to 14).",
+      "default": 5
+    },
+    "weeklyPills": {
+      "type": "number",
+      "title": "Weekly pills",
+      "description": "Pills in the weekly bar (1 to 14).",
+      "default": 5
+    },
+    "modelPills": {
+      "type": "number",
+      "title": "Model pills",
+      "description": "Pills in the model bar (1 to 14).",
+      "default": 5
+    },
+    "goldStart": {
+      "type": "string",
+      "title": "First pill color",
+      "description": "Hex color of the first pill; the pills shade toward Last pill color.",
+      "default": "#d9a400"
+    },
+    "goldEnd": {
+      "type": "string",
+      "title": "Last pill color",
+      "description": "Hex color of the last pill.",
+      "default": "#6e4700"
+    },
+    "labelColor": {
+      "type": "string",
+      "title": "Label color",
+      "description": "Hex color of the bar labels.",
+      "default": "#805500"
+    },
+    "valueColor": {
+      "type": "string",
+      "title": "Number color",
+      "description": "Hex color of the percentages, reset time and task count.",
+      "default": "#b88400"
+    },
+    "dividerColor": {
+      "type": "string",
+      "title": "Divider color",
+      "description": "Hex color of the lines between bars.",
+      "default": "#1b1b1b"
+    },
+    "trackColor": {
+      "type": "string",
+      "title": "Empty pill color",
+      "description": "Hex color of the unfilled pills (drawn faint).",
+      "default": "#8b949e"
+    },
+    "showResetTime": {
+      "type": "boolean",
+      "title": "Show reset time",
+      "description": "The \u21bb countdown to the weekly reset.",
+      "default": true
+    },
+    "pulse": {
+      "type": "boolean",
+      "title": "Pulse while working",
+      "description": "Pills swell left to right while Claude is working.",
+      "default": true
+    },
+    "pulseSeconds": {
+      "type": "number",
+      "title": "Pulse speed",
+      "description": "Seconds for one swell to cross the bar.",
+      "default": 1.6
+    },
+    "modelRefreshMinutes": {
+      "type": "number",
+      "title": "Model refresh (minutes)",
+      "description": "How often to fetch the model bar's figure, at most.",
+      "default": 2
+    }
+  }
 }

@@ -201,9 +201,9 @@ test('shows the Fable weekly limit as a second bar', async ($, on) => {
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
   expect(await ui.find({ type: 'Text', text: 'Fable' })).toBeTruthy()
   expect(await ui.find({ type: 'Text', text: '44%' })).toBeTruthy()
-  const bars = await ui.findAll({ type: 'Svg' })
+  const bars = (await ui.findAll({ type: 'Svg' })).filter(b => /used/.test(String(b.props.alt)))
   expect(bars).toHaveLength(2)
-  expect((String(bars[0]!.props.source).match(/rx="5"/g) ?? []).length).toBe(14)
+  expect((String(bars[0]!.props.source).match(/<clipPath/g) ?? []).length).toBe(5)
   await ui.unmount()
 })
 
@@ -220,8 +220,60 @@ test('shows the 5-hour window first', async ($, on) => {
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
   const texts = (await ui.findAll({ type: 'Text' })).map(t => t.text)
-  expect(texts.slice(0, 4)).toEqual(['5-hour', '12%', '│', 'Weekly'])
+  expect(texts.slice(0, 6)).toEqual(['0', '│', '5-hour', '12%', '│', 'Weekly'])
   const bars = await ui.findAll({ type: 'Svg' })
-  expect((String(bars[0]!.props.source).match(/<clipPath/g) ?? []).length).toBe(5)
+  expect((String(bars[1]!.props.source).match(/<clipPath/g) ?? []).length).toBe(5)
   await ui.unmount()
 })
+
+test('a spinner shows while background work runs', async ($, on) => {
+  mock.clock(on, { now: NOW })
+  mock.store(on)
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('session.usage', () =>
+    usage([{ kind: 'seven_day', percentUsed: 30, resetsAt: new Date(NOW + 3 * DAY).toISOString() }]),
+  )
+  on('tool.call', () => ({ result: { text: 'Command running in background with ID: b0u74psa3.' } }))
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  expect((await ui.findAll({ type: 'Svg' }))[0]?.props.alt).toBe('No background tasks running')
+
+  await $.tool.call({ tool: 'Bash', command: 'sleep 90', run_in_background: true })
+  expect((await ui.findAll({ type: 'Svg' }))[0]?.props.alt).toBe('1 background task running')
+
+  // eslint-disable-next-line
+  await ($.session.append as (a: unknown) => Promise<unknown>)({
+    door: 'engine', origin: { kind: 'engine' }, uuid: 'u1',
+    message: {
+      type: 'user',
+      content: [{ type: 'text', text: '<task-notification><task-id>b0u74psa3</task-id><status>completed</status></task-notification>' }],
+    },
+  })
+  expect((await ui.findAll({ type: 'Svg' }))[0]?.props.alt).toBe('No background tasks running')
+  await ui.unmount()
+})
+
+test(
+  'options change pill counts, labels, colors and which bars show',
+  { options: { weeklyPills: 7, weeklyLabel: 'Week', labelColor: '#123456', showSession: false, showBackground: false } },
+  async ($, on) => {
+    mock.clock(on, { now: NOW })
+    mock.store(on)
+    on('session.start', (_, e) => ({ cwd: e.cwd }))
+    on('session.usage', () =>
+      usage([
+        { kind: 'five_hour', percentUsed: 12 },
+        { kind: 'seven_day', percentUsed: 30, resetsAt: new Date(NOW + 3 * DAY).toISOString() },
+      ]),
+    )
+    await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+    const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+    const label = await ui.find({ type: 'Text', text: 'Week' })
+    expect(label?.props.color).toBe('#123456')
+    expect(await ui.find({ type: 'Text', text: '5-hour' })).toBeUndefined()
+    const bars = await ui.findAll({ type: 'Svg' })
+    expect(bars).toHaveLength(1)
+    expect((String(bars[0]!.props.source).match(/<clipPath/g) ?? []).length).toBe(7)
+    await ui.unmount()
+  },
+)

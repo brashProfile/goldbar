@@ -18,6 +18,9 @@ export type ModelReading = {
   at: number
 }
 
+/** A background task the mod saw start and has not yet seen end. */
+export type BgTask = { toolUseId: string | null; taskId: string | null; at: number }
+
 /** What the hooks module hands the animated gauge (`hooks/gauge.tsx`). */
 export type GaugeProps = {
   /** Percent of the weekly limit used, 0 to 100. */
@@ -39,6 +42,6 @@ export type GaugeProps = {
 
 declare module 'claude-code' {
   interface PluginState {
-    'goldbar': { reading: Reading | null; fable: ModelReading | null; session: ModelReading | null }
+    'goldbar': { reading: Reading | null; fable: ModelReading | null; session: ModelReading | null; background: number; tasks: BgTask[] }
   }
 }
