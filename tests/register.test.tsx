@@ -12,7 +12,7 @@ const BAND = {
     isCollapsed: false,
     isWorking: false,
     maxRows: 10,
-    bodyColumns: 100,
+    bodyColumns: 140,
     scroll: { offset: 0, bodyRows: 10 },
     view: {},
   },
@@ -203,7 +203,7 @@ test('shows the Fable weekly limit as a second bar', async ($, on) => {
   expect(await ui.find({ type: 'Text', text: '44%' })).toBeTruthy()
   const bars = (await ui.findAll({ type: 'Svg' })).filter(b => /used/.test(String(b.props.alt)))
   expect(bars).toHaveLength(2)
-  expect((String(bars[0]!.props.source).match(/<clipPath/g) ?? []).length).toBe(5)
+  expect((String(bars[0]!.props.source).match(/<g transform="translate/g) ?? []).length).toBe(5)
   await ui.unmount()
 })
 
@@ -222,7 +222,7 @@ test('shows the 5-hour window first', async ($, on) => {
   const texts = (await ui.findAll({ type: 'Text' })).map(t => t.text)
   expect(texts.slice(0, 6)).toEqual(['0', '│', '5-hour', '12%', '│', 'Weekly'])
   const bars = await ui.findAll({ type: 'Svg' })
-  expect((String(bars[1]!.props.source).match(/<clipPath/g) ?? []).length).toBe(5)
+  expect((String(bars[1]!.props.source).match(/<g transform="translate/g) ?? []).length).toBe(5)
   await ui.unmount()
 })
 
@@ -273,7 +273,68 @@ test(
     expect(await ui.find({ type: 'Text', text: '5-hour' })).toBeUndefined()
     const bars = await ui.findAll({ type: 'Svg' })
     expect(bars).toHaveLength(1)
-    expect((String(bars[0]!.props.source).match(/<clipPath/g) ?? []).length).toBe(7)
+    expect((String(bars[0]!.props.source).match(/<g transform="translate/g) ?? []).length).toBe(7)
     await ui.unmount()
   },
 )
+
+test('the bars squish, roll up into rings and drop out as the band narrows', async ($, on) => {
+  const clock = mock.clock(on, { now: NOW })
+  mock.store(on)
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('session.usage', () =>
+    usage([
+      { kind: 'five_hour', percentUsed: 12 },
+      { kind: 'seven_day', percentUsed: 30, resetsAt: new Date(NOW + 3 * DAY).toISOString() },
+    ]),
+  )
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  const at = async (bodyColumns: number) => {
+    await clock.advance(5000)
+    await ui.redraw({ ...BAND.props, bodyColumns })
+    const svgs = (await ui.findAll({ type: 'Svg' })).filter(x => /used/.test(String(x.props.alt)))
+    const texts = (await ui.findAll({ type: 'Text' })).map(t => t.text)
+    const of = (name: string) => svgs.find(x => String(x.props.alt).includes(name))
+    const src = (name: string) => String(of(name)?.props.source ?? '')
+    return { texts, of, src, width: (name: string) => Number(of(name)?.props.width) }
+  }
+
+  const wide = await at(140)
+  expect(wide.width('5-hour')).toBe(wide.width('Weekly'))
+  expect(wide.src('Weekly')).not.toContain('<animate')
+
+  // A little narrower: the 5-hour pills squish, with a bounce; weekly does not.
+  const snug = await at(70)
+  expect(snug.width('5-hour')).toBeLessThan(wide.width('5-hour'))
+  expect(snug.width('Weekly')).toBe(wide.width('Weekly'))
+  expect(snug.src('5-hour')).toContain('<animateTransform')
+  expect(snug.src('Weekly')).not.toContain('<animate')
+
+  // Narrower: the 5-hour bar rolls up into a ring; weekly keeps pills and countdown.
+  const rings = await at(63)
+  expect(rings.src('5-hour')).toContain('<circle')
+  expect(rings.width('Weekly')).toBe(wide.width('Weekly'))
+  expect(rings.texts).toContain('↻ 3d 0h')
+
+  // Then the side bars step aside: weekly stands alone, full size, with its countdown.
+  const alone = await at(56)
+  expect(alone.of('5-hour')).toBeUndefined()
+  expect(alone.width('Weekly')).toBe(wide.width('Weekly'))
+  expect(alone.texts).toContain('↻ 3d 0h')
+
+  // Then the countdown goes.
+  const solo = await at(40)
+  expect(solo.width('Weekly')).toBe(wide.width('Weekly'))
+  expect(solo.texts).not.toContain('↻ 3d 0h')
+
+  // Then its own pills squish into beads.
+  const beads = await at(29)
+  expect(beads.width('Weekly')).toBeLessThan(wide.width('Weekly'))
+
+  // Tiny: weekly rolls up too.
+  const tiny = await at(14)
+  expect(tiny.src('Weekly')).toContain('<circle')
+  expect(tiny.texts).toContain('30%')
+  await ui.unmount()
+})

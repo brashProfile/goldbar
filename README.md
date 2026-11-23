@@ -82,6 +82,8 @@ Every color, label and count is a setting. In a terminal session run `/plugin`, 
 | `pulse` | `true` | Pills swell left to right while Claude works |
 | `pulseSeconds` | `1.6` | Seconds for one swell to cross a bar |
 | `modelRefreshMinutes` | `2` | How often the model bar's figure is fetched, at most |
+| `columnPixels` | `8` | How wide one text column is taken to be when fitting the bars; raise it if they shrink too late |
+| `bounce` | `true` | Pills and rings bounce when they change shape |
 
 ## What you need
 
@@ -94,6 +96,7 @@ Every color, label and count is a setting. In a terminal session run `/plugin`, 
 - The Fable figure comes from the same usage endpoint the `/usage` screen reads, called with your own session's sign-in at most every two minutes. Nothing is sent anywhere else.
 - Before your first message in a new session there is no fresh reading yet, so the weekly bar shows the last one it saw, dimmed, with "(last seen … ago)".
 - Background tasks are counted when the call that starts them returns, and cleared when their completion notice arrives (a task with no notice drops off after 6 hours).
+- The band fits itself to any width. As it narrows, the 5-hour and model pills squish into round beads, then roll up into small ring gauges, then step aside; the weekly bar keeps its full size and countdown the longest, then squishes and finally rolls up into a ring too. Each change of shape lands with a little bounce.
 - Collapse the band with the `[-]` beside it, or ctrl+x ctrl+a.
 
 ## Development

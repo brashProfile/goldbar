@@ -39,6 +39,8 @@ const DEFAULTS = {
   pulse: true,
   pulseSeconds: 1.6,
   modelRefreshMinutes: 2,
+  columnPixels: 8,
+  bounce: true,
 }
 type Config = typeof DEFAULTS
 
@@ -127,36 +129,125 @@ async function refreshFable($: EngineInterface): Promise<void> {
   }
 }
 
-/** Seven rounded day pills; the fill runs through them in golds. While a turn
- * runs, a swell travels left to right: each pill widens briefly in turn. */
-function days(percent: number, isWorking: boolean, isStale: boolean, N = 7): string {
-  const PW = 22, H = 10, GAP = 4, W = N * PW + (N - 1) * GAP, SWELL = 4
+const PILL_MAX = 22
+const PILL_MIN = 10
+const PILL_H = 10
+const BAR_H = 14
+const BAR_PAD = 3
+const pillGap = (pw: number) => (pw >= 16 ? 4 : 3)
+const barW = (n: number, pw = PILL_MAX) => n * pw + (n - 1) * pillGap(pw) + BAR_PAD * 2
+
+/** A one-shot squish-and-bounce, staggered by `i`, for when a shape changes. */
+const popAnim = (i: number) =>
+  `<animateTransform attributeName="transform" type="scale" values="1 1;0.55 0.7;1.14 1.12;0.97 0.98;1 1" keyTimes="0;0.25;0.6;0.82;1" dur="0.5s" begin="${(i * 0.045).toFixed(3)}s" calcMode="spline" keySplines="0.3 0 0.7 1;0.3 0 0.5 1;0.3 0 0.7 1;0.3 0 0.7 1"/>`
+
+/** A row of rounded pills, each `pw` wide (at PILL_MIN they are round beads);
+ * the fill runs through them in golds. While a turn runs, a swell travels
+ * left to right. `pop` adds the one-shot bounce. */
+function days(percent: number, isWorking: boolean, isStale: boolean, N = 5, pw = PILL_MAX, pop = false): string {
+  const gap = pillGap(pw)
+  const W = barW(N, pw)
   const golds = ramp(N)
   const filled = (Math.max(0, Math.min(100, percent)) / 100) * N
   const op = isStale ? 0.45 : 1
   const DUR = Math.max(0.3, cfg.pulseSeconds)
-  isWorking = isWorking && cfg.pulse
-  const swell = (x: number, w: number, i: number) =>
-    isWorking
-      ? `<animate attributeName="width" values="${w};${w + SWELL};${w};${w}" keyTimes="0;0.12;0.26;1" dur="${DUR}s" begin="${(i * 0.12).toFixed(2)}s" repeatCount="indefinite"/>` +
-        `<animate attributeName="x" values="${x};${x - SWELL / 2};${x};${x}" keyTimes="0;0.12;0.26;1" dur="${DUR}s" begin="${(i * 0.12).toFixed(2)}s" repeatCount="indefinite"/>`
+  const delay = pop ? 0.6 : 0
+  const swell = (i: number) =>
+    isWorking && cfg.pulse
+      ? `<animateTransform attributeName="transform" type="scale" values="1 1;${(1 + 4 / pw).toFixed(3)} 1;1 1;1 1" keyTimes="0;0.12;0.26;1" dur="${DUR}s" begin="${(delay + i * 0.12).toFixed(2)}s" repeatCount="indefinite"/>`
       : ''
-  let defs = ''
+  const x0 = -pw / 2, y0 = -PILL_H / 2
   let out = ''
   for (let i = 0; i < N; i++) {
-    const x = SWELL / 2 + i * (PW + GAP)
+    const cx = BAR_PAD + i * (pw + gap) + pw / 2
     const f = Math.max(0, Math.min(1, filled - i))
-    defs += `<clipPath id="d${i}"><rect x="${x}" width="${PW}" height="${H}" rx="${H / 2}">${swell(x, PW, i)}</rect></clipPath>`
-    out += `<rect x="${x}" width="${PW}" height="${H}" rx="${H / 2}" fill="${cfg.trackColor}" opacity="0.22">${swell(x, PW, i)}</rect>`
-    if (f > 0) {
-      const fw = f === 1 ? PW : f * PW
-      out += `<rect x="${x}" width="${fw}" height="${H}" fill="${golds[i]}" opacity="${op}" clip-path="url(#d${i})">${f === 1 ? swell(x, PW, i) : ''}</rect>`
-    }
+    const fill = f > 0
+      ? `<rect x="${x0}" y="${y0}" width="${(f * pw).toFixed(2)}" height="${PILL_H}" fill="${golds[i]}" opacity="${op}" clip-path="url(#p)"/>`
+      : ''
+    out += `<g transform="translate(${cx} ${BAR_H / 2})"><g>${pop ? popAnim(i) : ''}<g>${swell(i)}<rect x="${x0}" y="${y0}" width="${pw}" height="${PILL_H}" rx="${PILL_H / 2}" fill="${cfg.trackColor}" opacity="0.22"/>${fill}</g></g></g>`
   }
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W + SWELL}" height="${H}" viewBox="0 0 ${W + SWELL} ${H}"><defs>${defs}</defs>${out}</svg>`
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${BAR_H}" viewBox="0 0 ${W} ${BAR_H}"><defs><clipPath id="p"><rect x="${x0}" y="${y0}" width="${pw}" height="${PILL_H}" rx="${PILL_H / 2}"/></clipPath></defs>${out}</svg>`
 }
 
-const barW = (n: number) => n * 22 + (n - 1) * 4 + 4
+/** A bar rolled up into a ring: the arc is the share used. `pop` draws the
+ * arc in from nothing with a bounce; a running turn makes the ring breathe. */
+function ring(percent: number, isWorking: boolean, isStale: boolean, pop = false): string {
+  const r = 5, c = 2 * Math.PI * r
+  const p = Math.max(0, Math.min(100, percent)) / 100
+  const golds = ramp(5)
+  const color = golds[Math.min(4, Math.floor(p * 5))]
+  const len = (p * c).toFixed(2)
+  const DUR = Math.max(0.3, cfg.pulseSeconds)
+  const roll = pop ? `<animate attributeName="stroke-dasharray" values="0 ${c.toFixed(2)};${len} ${c.toFixed(2)}" dur="0.55s" calcMode="spline" keySplines="0.2 0.7 0.3 1"/>` : ''
+  const breathe = isWorking && cfg.pulse
+    ? `<animateTransform attributeName="transform" type="scale" values="1;1.16;1;1" keyTimes="0;0.2;0.45;1" dur="${DUR}s" begin="${pop ? 0.6 : 0}s" repeatCount="indefinite"/>`
+    : ''
+  const arc = p > 0
+    ? `<circle r="${r}" fill="none" stroke="${color}" stroke-width="2.6" stroke-linecap="round" stroke-dasharray="${len} ${c.toFixed(2)}" transform="rotate(-90)" opacity="${isStale ? 0.45 : 1}">${roll}</circle>`
+    : ''
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><g transform="translate(8 8)"><g>${pop ? popAnim(0) : ''}<g>${breathe}<circle r="${r}" fill="none" stroke="${cfg.trackColor}" stroke-opacity="0.3" stroke-width="2.6"/>${arc}</g></g></g></svg>`
+}
+
+type BarShape = { mode: 'pills'; pw: number } | { mode: 'ring' } | { mode: 'none' }
+type Shape = { side: BarShape; weekly: BarShape; hasReset: boolean; hasLabel: boolean; hasDividers: boolean }
+type Sizes = { cols: number; spinner: number; five: [number, number] | null; model: [number, number] | null; weekly: [number, number]; reset: number }
+
+/** How many columns a shape needs. Text counts a column a character; a
+ * drawing its pixels over `columnPixels`. */
+function shapeCols(sh: Shape, z: Sizes): number {
+  const px = (n: number) => n / Math.max(4, cfg.columnPixels)
+  const bar = (b: BarShape, [label, pct]: [number, number], pills: number, withLabel = true) =>
+    b.mode === 'none' ? 0
+    : b.mode === 'ring' ? px(16) + 1 + (withLabel ? label + 1 : 0) + pct
+    : label + 1 + px(barW(pills, b.pw)) + 1 + pct
+  const parts = [
+    z.spinner,
+    z.five ? bar(sh.side, z.five, cfg.sessionPills) : 0,
+    bar(sh.weekly, z.weekly, cfg.weeklyPills, sh.hasLabel) + (sh.hasReset && z.reset ? 1 + z.reset : 0),
+    z.model ? bar(sh.side, z.model, cfg.modelPills) : 0,
+  ].filter(n => n > 0)
+  const between = sh.hasDividers ? 3 : 2
+  return parts.reduce((a, n) => a + n, 0) + (parts.length - 1) * between + 1
+}
+
+/** The richest shape that fits: side bars squish first, then roll up into
+ * rings and step aside; the weekly bar then gives up its countdown,
+ * squishes, and at the very last rolls up too. Pill widths are solved, so they shrink smoothly. */
+function fit(z: Sizes): Shape {
+  const pills = (pw: number): BarShape => ({ mode: 'pills', pw })
+  const R: BarShape = { mode: 'ring' }, X: BarShape = { mode: 'none' }
+  const full = pills(PILL_MAX)
+  // Each rung only ever takes away, so nothing shrinks and then grows back.
+  const ladder: Array<(pw: number) => Shape> = [
+    pw => ({ side: pills(pw), weekly: full, hasReset: true, hasLabel: true, hasDividers: true }),
+    () => ({ side: R, weekly: full, hasReset: true, hasLabel: true, hasDividers: true }),
+    () => ({ side: X, weekly: full, hasReset: true, hasLabel: true, hasDividers: false }),
+    pw => ({ side: X, weekly: pills(pw), hasReset: false, hasLabel: true, hasDividers: false }),
+  ]
+  for (const step of ladder) {
+    for (let pw = PILL_MAX; pw >= PILL_MIN; pw--) {
+      const sh = step(pw)
+      if (shapeCols(sh, z) <= z.cols) return sh
+    }
+  }
+  const small: Shape = { side: X, weekly: R, hasReset: false, hasLabel: true, hasDividers: false }
+  return shapeCols(small, z) <= z.cols ? small : { ...small, hasLabel: false }
+}
+
+/** The last shape drawn per bar, to bounce only when one changes. */
+const lastShape: Record<string, { key: string; at: number } | undefined> = {}
+const POP_MS = 700
+
+function changed(id: string, b: BarShape, now: number): boolean {
+  const key = b.mode === 'pills' ? `pills:${b.pw}` : b.mode
+  const prev = lastShape[id]
+  if (prev === undefined) {
+    lastShape[id] = { key, at: -Infinity }
+    return false
+  }
+  if (prev.key !== key) lastShape[id] = { key, at: now }
+  return cfg.bounce && now - lastShape[id]!.at < POP_MS
+}
 
 /** The same ring, still and faint, while nothing runs: it keeps the space. */
 const spinnerIdle = () => `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5.5" fill="none" stroke="${cfg.labelColor}" stroke-opacity="0.35" stroke-width="2"/></svg>`
@@ -364,41 +455,69 @@ export const register: Register = (on, options) => {
     if (e.surface === 'desktop') {
       const { Svg } = $.ui.resolve(e)
       const stale = gauge.staleFor
+      const working = e.props.isWorking
+      const pct = (n: number) => `${n}%`
+      const resetText = [
+        gauge.resetIn !== null && cfg.showResetTime ? `↻ ${gauge.resetIn}` : '',
+        stale !== null ? `(last seen ${stale} ago)` : '',
+      ].filter(t => t !== '').join(' ')
+      const sh = fit({
+        cols: e.props.bodyColumns,
+        spinner: cfg.showBackground ? 14 / Math.max(4, cfg.columnPixels) + 1 + `${bg}`.length : 0,
+        five: five ? [cfg.sessionLabel.length, pct(five.percentUsed).length] : null,
+        model: f ? [f.name.length, pct(f.percentUsed).length] : null,
+        weekly: cfg.showWeekly ? [cfg.weeklyLabel.length, pct(used).length] : [0, 0],
+        reset: resetText.length,
+      })
+      const divider = sh.hasDividers ? <Text color={cfg.dividerColor}>│</Text> : null
+
+      const bar = (id: string, b: BarShape, label: string, value: number, pills: number, isOld: boolean, extra: string) => {
+        if (b.mode === 'none') return null
+        const pop = changed(id, b, now)
+        const alt = `${value}% of the ${label} limit used`
+        return (
+          <Box flexDirection="row" gap={1} alignItems="center">
+            {b.mode === 'ring' ? (
+              <Svg source={ring(value, working, isOld, pop)} alt={alt} width={16} height={16} />
+            ) : (
+              <Text bold color={cfg.labelColor}>{label}</Text>
+            )}
+            {b.mode === 'ring' ? (
+              id !== 'weekly' || sh.hasLabel ? <Text bold color={cfg.labelColor}>{label}</Text> : null
+            ) : (
+              <Svg source={days(value, working, isOld, pills, b.pw, pop)} alt={alt} width={barW(pills, b.pw)} height={BAR_H} />
+            )}
+            <Text bold color={cfg.valueColor} dimColor={isOld}>{pct(value)}</Text>
+            {extra === '' ? null : <Text color={cfg.valueColor}>{extra}</Text>}
+          </Box>
+        )
+      }
+
+      const fiveBar = five ? bar('session', sh.side, cfg.sessionLabel, five.percentUsed, cfg.sessionPills, false, '') : null
+      const weekBar = cfg.showWeekly
+        ? bar('weekly', sh.weekly, cfg.weeklyLabel, used, cfg.weeklyPills, stale !== null, sh.hasReset ? resetText : '')
+        : null
+      const modelBar = f ? bar('model', sh.side, f.name, f.percentUsed, cfg.modelPills, false, '') : null
+
       return (
-        <Box flexDirection="row" justifyContent="space-between" alignItems="center">
-          {!cfg.showBackground ? null : (<Box flexDirection="row" gap={1} alignItems="center">
-            <Svg
-              source={bg === 0 ? spinnerIdle() : spinner()}
-              alt={bg === 0 ? 'No background tasks running' : `${bg} background task${bg === 1 ? '' : 's'} running`}
-              width={14}
-              height={14}
-            />
-            <Text color={cfg.valueColor} dimColor={bg === 0}>{`${bg}`}</Text>
-          </Box>)}
-          {!cfg.showBackground ? null : <Text color={cfg.dividerColor}>│</Text>}
-          {five === null ? null : (
+        <Box flexDirection="row" gap={sh.hasDividers ? 1 : 2} justifyContent={sh.hasDividers ? 'space-between' : 'flex-start'} alignItems="center">
+          {!cfg.showBackground ? null : (
             <Box flexDirection="row" gap={1} alignItems="center">
-              <Text bold color={cfg.labelColor}>{cfg.sessionLabel}</Text>
-              <Svg source={days(five.percentUsed, e.props.isWorking, false, cfg.sessionPills)} alt={`${five.percentUsed}% of the ${cfg.sessionLabel} limit used`} width={barW(cfg.sessionPills)} height={10} />
-              <Text bold color={cfg.valueColor}>{`${five.percentUsed}%`}</Text>
+              <Svg
+                source={bg === 0 ? spinnerIdle() : spinner()}
+                alt={bg === 0 ? 'No background tasks running' : `${bg} background task${bg === 1 ? '' : 's'} running`}
+                width={14}
+                height={14}
+              />
+              <Text color={cfg.valueColor} dimColor={bg === 0}>{`${bg}`}</Text>
             </Box>
           )}
-          {five === null || !cfg.showWeekly ? null : <Text color={cfg.dividerColor}>│</Text>}
-          {!cfg.showWeekly ? null : (<Box flexDirection="row" gap={1} alignItems="center">
-            <Text bold color={cfg.labelColor}>{cfg.weeklyLabel}</Text>
-            <Svg source={days(used, e.props.isWorking, stale !== null, cfg.weeklyPills)} alt={`${used}% of the weekly limit used`} width={barW(cfg.weeklyPills)} height={10} />
-            <Text bold color={cfg.valueColor} dimColor={stale !== null}>{`${used}%`}</Text>
-            {gauge.resetIn === null || !cfg.showResetTime ? null : <Text color={cfg.valueColor}>{`↻ ${gauge.resetIn}`}</Text>}
-            {stale === null ? null : <Text dimColor>{`(last seen ${stale} ago)`}</Text>}
-          </Box>)}
-          {f === null ? null : <Text color={cfg.dividerColor}>│</Text>}
-          {f === null ? null : (
-            <Box flexDirection="row" gap={1} alignItems="center">
-              <Text bold color={cfg.labelColor}>{f.name}</Text>
-              <Svg source={days(f.percentUsed, e.props.isWorking, false, cfg.modelPills)} alt={`${f.percentUsed}% of the ${f.name} weekly limit used`} width={barW(cfg.modelPills)} height={10} />
-              <Text bold color={cfg.valueColor}>{`${f.percentUsed}%`}</Text>
-            </Box>
-          )}
+          {cfg.showBackground && (fiveBar || weekBar) ? divider : null}
+          {fiveBar}
+          {fiveBar && weekBar ? divider : null}
+          {weekBar}
+          {modelBar && (weekBar || fiveBar) ? divider : null}
+          {modelBar}
         </Box>
       )
     }
