@@ -220,9 +220,10 @@ test('shows the 5-hour window first', async ($, on) => {
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
   const texts = (await ui.findAll({ type: 'Text' })).map(t => t.text)
-  expect(texts.slice(0, 6)).toEqual(['0', '│', '5-hour', '12%', '│', 'Weekly'])
+  expect(texts.slice(0, 4)).toEqual(['0', '5-hour', '12%', 'Weekly'])
   const bars = await ui.findAll({ type: 'Svg' })
-  expect((String(bars[1]!.props.source).match(/<g transform="translate/g) ?? []).length).toBe(5)
+  expect(bars.filter(b => b.props.alt === 'gap')).toHaveLength(4)
+  expect((String(bars.filter(b => /used/.test(String(b.props.alt)))[0]!.props.source).match(/<g transform="translate/g) ?? []).length).toBe(5)
   await ui.unmount()
 })
 
@@ -236,10 +237,10 @@ test('a spinner shows while background work runs', async ($, on) => {
   on('tool.call', () => ({ result: { text: 'Command running in background with ID: b0u74psa3.' } }))
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
-  expect((await ui.findAll({ type: 'Svg' }))[0]?.props.alt).toBe('No background tasks running')
+  expect((await ui.findAll({ type: 'Svg' })).some(x => x.props.alt === 'No background tasks running')).toBe(true)
 
   await $.tool.call({ tool: 'Bash', command: 'sleep 90', run_in_background: true })
-  expect((await ui.findAll({ type: 'Svg' }))[0]?.props.alt).toBe('1 background task running')
+  expect((await ui.findAll({ type: 'Svg' })).some(x => x.props.alt === '1 background task running')).toBe(true)
 
   // eslint-disable-next-line
   await ($.session.append as (a: unknown) => Promise<unknown>)({
@@ -249,7 +250,7 @@ test('a spinner shows while background work runs', async ($, on) => {
       content: [{ type: 'text', text: '<task-notification><task-id>b0u74psa3</task-id><status>completed</status></task-notification>' }],
     },
   })
-  expect((await ui.findAll({ type: 'Svg' }))[0]?.props.alt).toBe('No background tasks running')
+  expect((await ui.findAll({ type: 'Svg' })).some(x => x.props.alt === 'No background tasks running')).toBe(true)
   await ui.unmount()
 })
 
@@ -271,7 +272,7 @@ test(
     const label = await ui.find({ type: 'Text', text: 'Week' })
     expect(label?.props.color).toBe('#123456')
     expect(await ui.find({ type: 'Text', text: '5-hour' })).toBeUndefined()
-    const bars = await ui.findAll({ type: 'Svg' })
+    const bars = (await ui.findAll({ type: 'Svg' })).filter(b => /used/.test(String(b.props.alt)))
     expect(bars).toHaveLength(1)
     expect((String(bars[0]!.props.source).match(/<g transform="translate/g) ?? []).length).toBe(7)
     await ui.unmount()
@@ -305,35 +306,35 @@ test('the bars squish, roll up into rings and drop out as the band narrows', asy
   expect(wide.src('Weekly')).not.toContain('<animate')
 
   // A little narrower: the 5-hour pills squish, with a bounce; weekly does not.
-  const snug = await at(70)
+  const snug = await at(78)
   expect(snug.width('5-hour')).toBeLessThan(wide.width('5-hour'))
   expect(snug.width('Weekly')).toBe(wide.width('Weekly'))
   expect(snug.src('5-hour')).toContain('<animateTransform')
   expect(snug.src('Weekly')).not.toContain('<animate')
 
   // Narrower: the 5-hour bar rolls up into a ring; weekly keeps pills and countdown.
-  const rings = await at(63)
+  const rings = await at(73)
   expect(rings.src('5-hour')).toContain('<circle')
   expect(rings.width('Weekly')).toBe(wide.width('Weekly'))
   expect(rings.texts).toContain('↻ 3d 0h')
 
   // Then the side bars step aside: weekly stands alone, full size, with its countdown.
-  const alone = await at(56)
+  const alone = await at(58)
   expect(alone.of('5-hour')).toBeUndefined()
   expect(alone.width('Weekly')).toBe(wide.width('Weekly'))
   expect(alone.texts).toContain('↻ 3d 0h')
 
   // Then the countdown goes.
-  const solo = await at(40)
+  const solo = await at(48)
   expect(solo.width('Weekly')).toBe(wide.width('Weekly'))
   expect(solo.texts).not.toContain('↻ 3d 0h')
 
   // Then its own pills squish into beads.
-  const beads = await at(29)
+  const beads = await at(39)
   expect(beads.width('Weekly')).toBeLessThan(wide.width('Weekly'))
 
   // Tiny: weekly rolls up too.
-  const tiny = await at(14)
+  const tiny = await at(20)
   expect(tiny.src('Weekly')).toContain('<circle')
   expect(tiny.texts).toContain('30%')
   await ui.unmount()

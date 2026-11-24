@@ -1,7 +1,7 @@
 {
   "name": "goldbar",
-  "version": "0.3.0",
-  "description": "A gold band above the Claude Code prompt showing your 5-hour, weekly and per-model usage limits as pills that pulse while Claude works, plus a spinner for background tasks. Colors, labels and pill counts are configurable.",
+  "version": "0.4.0",
+  "description": "A gold band above the Claude Code prompt showing your 5-hour, weekly and per-model usage limits as pills that pulse while Claude works, plus a spinner for background tasks. Each group sits in its own rounded island, the band reshapes itself to any width, and colors, labels and pill counts are configurable.",
   "types": "./types/index.d.ts",
   "author": {
     "name": "brashProfile"
@@ -148,6 +148,36 @@
       "title": "Bounce on resize",
       "description": "Pills and rings bounce when they change shape.",
       "default": true
+    },
+    "islands": {
+      "type": "boolean",
+      "title": "Islands",
+      "description": "Draw each group as its own rounded island, with the page showing between them. Off: one flat bar with divider lines.",
+      "default": true
+    },
+    "gapColor": {
+      "type": "string",
+      "title": "Gap color",
+      "description": "Hex color painted between the islands. Set it to the app's page background (dark mode: #191919).",
+      "default": "#191919"
+    },
+    "islandGap": {
+      "type": "number",
+      "title": "Island gap",
+      "description": "Pixels between islands.",
+      "default": 8
+    },
+    "bandHeight": {
+      "type": "number",
+      "title": "Band height",
+      "description": "Height of the band in pixels; the islands' round ends are cut to it.",
+      "default": 40
+    },
+    "bandPadding": {
+      "type": "number",
+      "title": "Band padding",
+      "description": "Pixels between the band's edge and its content, left and right.",
+      "default": 8
     }
   }
 }

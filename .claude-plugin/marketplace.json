@@ -7,7 +7,7 @@
     {
       "name": "goldbar",
       "source": "./",
-      "description": "A gold band above the Claude Code prompt showing your 5-hour, weekly and per-model usage limits as pills that pulse while Claude works, plus a spinner for background tasks. Colors, labels and pill counts are configurable."
+      "description": "A gold band above the Claude Code prompt showing your 5-hour, weekly and per-model usage limits as pills that pulse while Claude works, plus a spinner for background tasks. Each group sits in its own rounded island, the band reshapes itself to any width, and colors, labels and pill counts are configurable."
     }
   ]
 }

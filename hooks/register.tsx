@@ -40,6 +40,11 @@ const DEFAULTS = {
   pulseSeconds: 1.6,
   modelRefreshMinutes: 2,
   columnPixels: 8,
+  islands: true,
+  gapColor: '#191919',
+  islandGap: 8,
+  bandHeight: 40,
+  bandPadding: 8,
   bounce: true,
 }
 type Config = typeof DEFAULTS
@@ -189,7 +194,7 @@ function ring(percent: number, isWorking: boolean, isStale: boolean, pop = false
 }
 
 type BarShape = { mode: 'pills'; pw: number } | { mode: 'ring' } | { mode: 'none' }
-type Shape = { side: BarShape; weekly: BarShape; hasReset: boolean; hasLabel: boolean; hasDividers: boolean }
+type Shape = { side: BarShape; weekly: BarShape; hasReset: boolean; hasLabel: boolean; hasDividers: boolean; pad: number }
 type Sizes = { cols: number; spinner: number; five: [number, number] | null; model: [number, number] | null; weekly: [number, number]; reset: number }
 
 /** How many columns a shape needs. Text counts a column a character; a
@@ -207,7 +212,9 @@ function shapeCols(sh: Shape, z: Sizes): number {
     z.model ? bar(sh.side, z.model, cfg.modelPills) : 0,
   ].filter(n => n > 0)
   const between = sh.hasDividers ? 3 : 2
-  return parts.reduce((a, n) => a + n, 0) + (parts.length - 1) * between + 1
+  // Islands: two columns of padding each side, a column between, and the ends.
+  const around = cfg.islands ? parts.length * sh.pad * 2 + (parts.length - 1) + 6 : (parts.length - 1) * between
+  return parts.reduce((a, n) => a + n, 0) + around + 1
 }
 
 /** The richest shape that fits: side bars squish first, then roll up into
@@ -218,7 +225,8 @@ function fit(z: Sizes): Shape {
   const R: BarShape = { mode: 'ring' }, X: BarShape = { mode: 'none' }
   const full = pills(PILL_MAX)
   // Each rung only ever takes away, so nothing shrinks and then grows back.
-  const ladder: Array<(pw: number) => Shape> = [
+  type Rung = Omit<Shape, 'pad'>
+  const ladder: Array<(pw: number) => Rung> = [
     pw => ({ side: pills(pw), weekly: full, hasReset: true, hasLabel: true, hasDividers: true }),
     () => ({ side: R, weekly: full, hasReset: true, hasLabel: true, hasDividers: true }),
     () => ({ side: X, weekly: full, hasReset: true, hasLabel: true, hasDividers: false }),
@@ -226,12 +234,41 @@ function fit(z: Sizes): Shape {
   ]
   for (const step of ladder) {
     for (let pw = PILL_MAX; pw >= PILL_MIN; pw--) {
-      const sh = step(pw)
-      if (shapeCols(sh, z) <= z.cols) return sh
+      // An island's inner padding gives way before its pills do.
+      for (const pad of [2, 1]) {
+        const sh = { ...step(pw), pad }
+        if (shapeCols(sh, z) <= z.cols) return sh
+      }
     }
   }
-  const small: Shape = { side: X, weekly: R, hasReset: false, hasLabel: true, hasDividers: false }
+  const small: Shape = { side: X, weekly: R, hasReset: false, hasLabel: true, hasDividers: false, pad: 1 }
   return shapeCols(small, z) <= z.cols ? small : { ...small, hasLabel: false }
+}
+
+// --- Islands: the band's own panel shows through as separate rounded islands;
+// the gaps between them are painted in the page's color, over the panel.
+const COVER = 4
+const coverH = () => cfg.bandHeight + COVER * 2
+
+/** The gap between two islands, with both neighbours' round ends cut out. */
+function cutSvg(): { source: string; width: number } {
+  const r = cfg.bandHeight / 2, g = Math.max(2, cfg.islandGap), w = 2 * r + g, h = coverH()
+  const top = COVER, bot = COVER + cfg.bandHeight
+  const d = `M0 0H${w}V${h}H0Z M0 ${top}A${r} ${r} 0 0 1 0 ${bot}Z M${w} ${top}A${r} ${r} 0 0 0 ${w} ${bot}Z`
+  return { width: w, source: `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><path fill-rule="evenodd" fill="${cfg.gapColor}" d="${d}"/></svg>` }
+}
+
+/** The band's own end, rounded into an island's end: it covers the panel's
+ * padding and corner, and leaves a half-circle of the panel showing. */
+function endSvg(side: 'left' | 'right'): { source: string; width: number } {
+  const r = cfg.bandHeight / 2, pad = cfg.bandPadding, cell = Math.max(4, cfg.columnPixels), h = coverH()
+  const half = Math.max(cell / 2 + pad + COVER, r - pad - cell / 2)
+  const w = half * 2
+  const cx = half - cell / 2 - pad + r
+  const top = COVER, bot = COVER + cfg.bandHeight
+  const d = `M0 0H${w}V${h}H0Z M${cx} ${top}A${r} ${r} 0 0 0 ${cx} ${bot}H${w}V${top}Z`
+  const flip = side === 'right' ? ` transform="translate(${w} 0) scale(-1 1)"` : ''
+  return { width: w, source: `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><path${flip} fill-rule="evenodd" fill="${cfg.gapColor}" d="${d}"/></svg>` }
 }
 
 /** The last shape drawn per bar, to bounce only when one changes. */
@@ -499,19 +536,76 @@ export const register: Register = (on, options) => {
         : null
       const modelBar = f ? bar('model', sh.side, f.name, f.percentUsed, cfg.modelPills, false, '') : null
 
+      const spinnerGroup = !cfg.showBackground ? null : (
+        <Box flexDirection="row" gap={1} alignItems="center">
+          <Svg
+            source={bg === 0 ? spinnerIdle() : spinner()}
+            alt={bg === 0 ? 'No background tasks running' : `${bg} background task${bg === 1 ? '' : 's'} running`}
+            width={14}
+            height={14}
+          />
+          <Text color={cfg.valueColor} dimColor={bg === 0}>{`${bg}`}</Text>
+        </Box>
+      )
+
+      if (cfg.islands) {
+        // Each group is an island; a piece drawn over the band's padding sits
+        // between them and at both ends, out of the flow, centered on the row.
+        // The app fits an image to the box that holds it, so the box reaches
+        // past its one-cell slot far enough to hold the piece at full size:
+        // `reach` columns each side, two rows above and below.
+        const over = (piece: { source: string; width: number }) => {
+          const reach = Math.ceil(piece.width / 2 / Math.max(4, cfg.columnPixels)) + 1
+          return (
+            <Box position="relative" width={1} flexShrink={0}>
+              <Box
+                position="absolute"
+                top={-2}
+                bottom={-2}
+                left={-reach}
+                right={-reach}
+                justifyContent="center"
+                alignItems="center"
+              >
+                <Svg source={piece.source} alt="gap" width={piece.width} height={coverH()} />
+              </Box>
+            </Box>
+          )
+        }
+        const groups = [
+          { node: spinnerGroup, grows: false },
+          { node: fiveBar, grows: true },
+          { node: weekBar, grows: true },
+          { node: modelBar, grows: true },
+        ].filter(g => g.node !== null)
+        const anyGrows = groups.some(g => g.grows)
+        const last = groups.length - 1
+        return (
+          <Box flexDirection="row" alignItems="center">
+            {over(endSvg('left'))}
+            {groups.flatMap((g, i) => [
+              i === 0 ? null : over(cutSvg()),
+              // The end islands reach past their box to the band's edge, so
+              // their content leans the other way to sit centered.
+              <Box
+                flexDirection="row"
+                flexGrow={g.grows || (!anyGrows && i === last) ? 1 : 0}
+                justifyContent="center"
+                alignItems="center"
+                paddingLeft={sh.pad + (i === last && last > 0 ? 2 : 0)}
+                paddingRight={sh.pad + (i === 0 && last > 0 ? 2 : 0)}
+              >
+                {g.node}
+              </Box>,
+            ])}
+            {over(endSvg('right'))}
+          </Box>
+        )
+      }
+
       return (
         <Box flexDirection="row" gap={sh.hasDividers ? 1 : 2} justifyContent={sh.hasDividers ? 'space-between' : 'flex-start'} alignItems="center">
-          {!cfg.showBackground ? null : (
-            <Box flexDirection="row" gap={1} alignItems="center">
-              <Svg
-                source={bg === 0 ? spinnerIdle() : spinner()}
-                alt={bg === 0 ? 'No background tasks running' : `${bg} background task${bg === 1 ? '' : 's'} running`}
-                width={14}
-                height={14}
-              />
-              <Text color={cfg.valueColor} dimColor={bg === 0}>{`${bg}`}</Text>
-            </Box>
-          )}
+          {spinnerGroup}
           {cfg.showBackground && (fiveBar || weekBar) ? divider : null}
           {fiveBar}
           {fiveBar && weekBar ? divider : null}
