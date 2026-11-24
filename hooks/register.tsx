@@ -44,6 +44,7 @@ const DEFAULTS = {
   gapColor: '#191919',
   islandGap: 8,
   bandHeight: 40,
+  islandHeight: 20,
   bandPadding: 8,
   bounce: true,
 }
@@ -205,15 +206,20 @@ function shapeCols(sh: Shape, z: Sizes): number {
     b.mode === 'none' ? 0
     : b.mode === 'ring' ? px(16) + 1 + (withLabel ? label + 1 : 0) + pct
     : label + 1 + px(barW(pills, b.pw)) + 1 + pct
-  const parts = [
-    z.spinner,
+  const bars = [
     z.five ? bar(sh.side, z.five, cfg.sessionPills) : 0,
     bar(sh.weekly, z.weekly, cfg.weeklyPills, sh.hasLabel) + (sh.hasReset && z.reset ? 1 + z.reset : 0),
     z.model ? bar(sh.side, z.model, cfg.modelPills) : 0,
   ].filter(n => n > 0)
+  // With a bar beside it, the background-task island is a ring of fixed size.
+  const isRing = cfg.islands && z.spinner > 0 && bars.length > 0
+  const parts = z.spinner > 0 ? [isRing ? px(ringBox()) : z.spinner, ...bars] : bars
   const between = sh.hasDividers ? 3 : 2
   // Islands: two columns of padding each side, a column between, and the ends.
-  const around = cfg.islands ? parts.length * sh.pad * 2 + (parts.length - 1) + 6 : (parts.length - 1) * between
+  // The ring has no padding, no end piece and no gap piece of its own.
+  const around = !cfg.islands ? (parts.length - 1) * between
+    : isRing ? bars.length * sh.pad * 2 + (bars.length - 1) + 4
+    : parts.length * sh.pad * 2 + (parts.length - 1) + 6
   return parts.reduce((a, n) => a + n, 0) + around + 1
 }
 
@@ -250,10 +256,28 @@ function fit(z: Sizes): Shape {
 const COVER = 4
 const coverH = () => cfg.bandHeight + COVER * 2
 
+/** The islands' height: `islandHeight`, no more than the band's own. */
+const islandH = () => Math.max(12, Math.min(cfg.bandHeight, cfg.islandHeight))
+
+/** Where the islands sit down a cover piece: centered in the band, `r` the
+ * radius of their round ends. */
+function zone(): { r: number; top: number; bot: number } {
+  const hi = islandH(), top = COVER + (cfg.bandHeight - hi) / 2
+  return { r: hi / 2, top, bot: top + hi }
+}
+
+/** The band above and below the islands, painted in the page's color: one
+ * tile `w` wide of a run laid across the whole band. */
+function trimSvg(w: number): string {
+  const { top, bot } = zone(), h = coverH()
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><path fill="${cfg.gapColor}" d="M0 0H${w}V${top}H0Z M0 ${bot}H${w}V${h}H0Z"/></svg>`
+}
+const TRIM_W = 600, TRIM_TILES = 4
+
 /** The gap between two islands, with both neighbours' round ends cut out. */
 function cutSvg(): { source: string; width: number } {
-  const r = cfg.bandHeight / 2, g = Math.max(2, cfg.islandGap), w = 2 * r + g, h = coverH()
-  const top = COVER, bot = COVER + cfg.bandHeight
+  const { r, top, bot } = zone()
+  const g = Math.max(2, cfg.islandGap), w = 2 * r + g, h = coverH()
   const d = `M0 0H${w}V${h}H0Z M0 ${top}A${r} ${r} 0 0 1 0 ${bot}Z M${w} ${top}A${r} ${r} 0 0 0 ${w} ${bot}Z`
   return { width: w, source: `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><path fill-rule="evenodd" fill="${cfg.gapColor}" d="${d}"/></svg>` }
 }
@@ -261,14 +285,76 @@ function cutSvg(): { source: string; width: number } {
 /** The band's own end, rounded into an island's end: it covers the panel's
  * padding and corner, and leaves a half-circle of the panel showing. */
 function endSvg(side: 'left' | 'right'): { source: string; width: number } {
-  const r = cfg.bandHeight / 2, pad = cfg.bandPadding, cell = Math.max(4, cfg.columnPixels), h = coverH()
+  const { r, top, bot } = zone()
+  const pad = cfg.bandPadding, cell = Math.max(4, cfg.columnPixels), h = coverH()
   const half = Math.max(cell / 2 + pad + COVER, r - pad - cell / 2)
   const w = half * 2
   const cx = half - cell / 2 - pad + r
-  const top = COVER, bot = COVER + cfg.bandHeight
   const d = `M0 0H${w}V${h}H0Z M${cx} ${top}A${r} ${r} 0 0 0 ${cx} ${bot}H${w}V${top}Z`
   const flip = side === 'right' ? ` transform="translate(${w} 0) scale(-1 1)"` : ''
   return { width: w, source: `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><path${flip} fill-rule="evenodd" fill="${cfg.gapColor}" d="${d}"/></svg>` }
+}
+
+/** The ring island's width in the flow: the island less the band's padding,
+ * which the island reaches across to the band's edge. */
+const ringBox = () => Math.max(8, islandH() - cfg.bandPadding)
+
+/** Mixes a hex color toward white by `k` (0 to 1). */
+function tint(color: string, k: number): string {
+  const c = hex2rgb(color) ?? hex2rgb(DEFAULTS.goldStart)!
+  return '#' + c.map(v => Math.round(v + (255 - v) * k).toString(16).padStart(2, '0')).join('')
+}
+
+/** The background-task island: the island itself is the ring, with the count
+ * in its middle. Its rim sits still and faint while nothing runs; while
+ * something does, the rim breathes and a bright comet runs around it.
+ *
+ * Drawn out of the flow, centered on a spacer `box` pixels wide, it also
+ * covers the band's left end and the gap to the next island, whose round end
+ * it cuts. */
+function ringIsland(bg: number): { source: string; width: number; box: number } {
+  const { r, top, bot } = zone()
+  const P = cfg.bandPadding, g = Math.max(2, cfg.islandGap), h = coverH(), mid = h / 2
+  const box = ringBox()
+  const m = Math.max(P + COVER, g + r)
+  const w = box + 2 * m
+  const xL = m - P, xR = m + box, cx = (xL + xR) / 2
+  const x0 = xL - COVER, x1 = xR + g + r
+  const hole = `M${xL + r} ${top}H${xR - r}A${r} ${r} 0 0 1 ${xR - r} ${bot}H${xL + r}A${r} ${r} 0 0 1 ${xL + r} ${top}Z`
+  const next = `M${x1} ${top}A${r} ${r} 0 0 0 ${x1} ${bot}Z`
+  const cover = `<path fill-rule="evenodd" fill="${cfg.gapColor}" d="M${x0} 0H${x1}V${h}H${x0}Z ${hole} ${next}"/>`
+
+  // A thin island gets a thinner rim, a softer glow and smaller digits.
+  const SW = r >= 16 ? 2.5 : 2
+  const rim = (attrs: string, inner = '') =>
+    `<rect x="${xL + SW / 2}" y="${top + SW / 2}" width="${xR - xL - SW}" height="${2 * r - SW}" rx="${r - SW / 2}" fill="none" pathLength="100" ${attrs}>${inner}</rect>`
+  // A dash `len` long whose leading end runs once around the rim.
+  const run = (len: number) =>
+    `<animate attributeName="stroke-dashoffset" values="${len};${len - 100}" dur="1.5s" repeatCount="indefinite"/>`
+  const dash = (len: number) => `stroke-dasharray="${len} ${100 - len}" stroke-dashoffset="${len}"`
+  const gold = cfg.goldStart
+  const rings = bg === 0
+    ? rim(`stroke="${cfg.labelColor}" stroke-opacity="0.35" stroke-width="${SW}"`)
+    : rim(
+        `stroke="${cfg.labelColor}" stroke-opacity="0.4" stroke-width="${SW}"`,
+        `<animate attributeName="stroke-opacity" values="0.3;0.7;0.3" dur="1.8s" repeatCount="indefinite"/>`,
+      ) +
+      rim(`stroke="${gold}" stroke-opacity="0.55" stroke-width="${SW + (r >= 16 ? 3 : 2)}" stroke-linecap="round" filter="url(#glow)" ${dash(16)}`, run(16)) +
+      rim(`stroke="${gold}" stroke-opacity="0.3" stroke-width="${SW}" stroke-linecap="round" ${dash(44)}`, run(44)) +
+      rim(`stroke="${gold}" stroke-opacity="0.6" stroke-width="${SW}" stroke-linecap="round" ${dash(30)}`, run(30)) +
+      rim(`stroke="${gold}" stroke-width="${SW}" stroke-linecap="round" ${dash(16)}`, run(16)) +
+      rim(`stroke="${tint(gold, 0.6)}" stroke-width="${SW}" stroke-linecap="round" ${dash(4)}`, run(4))
+
+  const label = bg > 99 ? '99+' : `${bg}`
+  const inner = 2 * r - 2 * SW - 2
+  const size = +(label.length >= 3 ? Math.min(10.5, inner * 0.52) : label.length === 2 ? Math.min(13, inner * 0.68) : Math.min(14, inner * 0.8)).toFixed(1)
+  const count = `<text x="${cx}" y="${mid}" dy="0.36em" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" font-size="${size}" font-weight="600" fill="${cfg.valueColor}"${bg === 0 ? ' opacity="0.5"' : ''}>${label}</text>`
+  const defs = bg === 0 ? '' : `<defs><filter id="glow" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="${r >= 16 ? 1.8 : 1.2}"/></filter></defs>`
+  return {
+    box,
+    width: w,
+    source: `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">${defs}${cover}${rings}${count}</svg>`,
+  }
 }
 
 /** The last shape drawn per bar, to bounce only when one changes. */
@@ -285,6 +371,11 @@ function changed(id: string, b: BarShape, now: number): boolean {
   if (prev.key !== key) lastShape[id] = { key, at: now }
   return cfg.bounce && now - lastShape[id]!.at < POP_MS
 }
+
+/** A see-through drawing, to hold a width in pixels in the flow. It has a
+ * shape in it and is given an `alt`: the app drew a wholly empty one with no
+ * `alt` at no width at all. */
+const blank = (w: number, h: number) => `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><rect width="${w}" height="${h}" fill="#000000" fill-opacity="0"/></svg>`
 
 /** The same ring, still and faint, while nothing runs: it keeps the space. */
 const spinnerIdle = () => `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5.5" fill="none" stroke="${cfg.labelColor}" stroke-opacity="0.35" stroke-width="2"/></svg>`
@@ -536,11 +627,12 @@ export const register: Register = (on, options) => {
         : null
       const modelBar = f ? bar('model', sh.side, f.name, f.percentUsed, cfg.modelPills, false, '') : null
 
+      const bgAlt = bg === 0 ? 'No background tasks running' : `${bg} background task${bg === 1 ? '' : 's'} running`
       const spinnerGroup = !cfg.showBackground ? null : (
         <Box flexDirection="row" gap={1} alignItems="center">
           <Svg
             source={bg === 0 ? spinnerIdle() : spinner()}
-            alt={bg === 0 ? 'No background tasks running' : `${bg} background task${bg === 1 ? '' : 's'} running`}
+            alt={bgAlt}
             width={14}
             height={14}
           />
@@ -572,28 +664,64 @@ export const register: Register = (on, options) => {
             </Box>
           )
         }
+        const bars = [fiveBar, weekBar, modelBar].filter(node => node !== null)
+        // Beside a bar, the background-task island is itself the ring: one
+        // piece drawn over a spacer, which also rounds off the band's left end
+        // and cuts the gap to the first bar.
+        const isRing = spinnerGroup !== null && bars.length > 0
+        const ringNode = () => {
+          const piece = ringIsland(bg)
+          const reach = Math.ceil((piece.width - piece.box) / 2 / 6) + 1
+          return (
+            // `minWidth` keeps the ring near its place should the spacer not draw.
+            <Box position="relative" flexShrink={0} minWidth={Math.max(1, Math.floor(piece.box / 10))}>
+              <Svg source={blank(piece.box, BAR_H)} alt="spacer" width={piece.box} height={BAR_H} />
+              <Box
+                position="absolute"
+                top={-2}
+                bottom={-2}
+                left={-reach}
+                right={-reach}
+                justifyContent="center"
+                alignItems="center"
+              >
+                <Svg source={piece.source} alt={bgAlt} width={piece.width} height={coverH()} />
+              </Box>
+            </Box>
+          )
+        }
         const groups = [
-          { node: spinnerGroup, grows: false },
-          { node: fiveBar, grows: true },
-          { node: weekBar, grows: true },
-          { node: modelBar, grows: true },
+          ...(isRing ? [] : [{ node: spinnerGroup, grows: false }]),
+          ...bars.map(node => ({ node, grows: true })),
         ].filter(g => g.node !== null)
         const anyGrows = groups.some(g => g.grows)
         const last = groups.length - 1
+        // Islands lower than the band: the band's top and bottom are painted
+        // out along its whole length by a run of tiles, in a box far wider
+        // than the band so the app draws them at full size; the band clips it.
+        const trim = islandH() >= cfg.bandHeight ? null : (
+          <Box position="absolute" top={-2} bottom={-2} left={-220} right={-220} flexDirection="row" justifyContent="center" alignItems="center">
+            {Array.from({ length: TRIM_TILES }, () => (
+              <Svg source={trimSvg(TRIM_W)} alt="trim" width={TRIM_W} height={coverH()} />
+            ))}
+          </Box>
+        )
         return (
-          <Box flexDirection="row" alignItems="center">
-            {over(endSvg('left'))}
+          <Box position="relative" flexDirection="row" alignItems="center">
+            {trim}
+            {isRing ? ringNode() : over(endSvg('left'))}
             {groups.flatMap((g, i) => [
               i === 0 ? null : over(cutSvg()),
               // The end islands reach past their box to the band's edge, so
-              // their content leans the other way to sit centered.
+              // their content leans the other way to sit centered. The island
+              // after the ring starts under the gap the ring's piece paints.
               <Box
                 flexDirection="row"
                 flexGrow={g.grows || (!anyGrows && i === last) ? 1 : 0}
                 justifyContent="center"
                 alignItems="center"
-                paddingLeft={sh.pad + (i === last && last > 0 ? 2 : 0)}
-                paddingRight={sh.pad + (i === 0 && last > 0 ? 2 : 0)}
+                paddingLeft={sh.pad + (i === last && (last > 0 || isRing) ? 2 : 0) + (isRing && i === 0 ? 1 : 0)}
+                paddingRight={sh.pad + (i === 0 && last > 0 && !isRing ? 2 : 0)}
               >
                 {g.node}
               </Box>,

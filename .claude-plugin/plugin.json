@@ -1,6 +1,6 @@
 {
   "name": "goldbar",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "A gold band above the Claude Code prompt showing your 5-hour, weekly and per-model usage limits as pills that pulse while Claude works, plus a spinner for background tasks. Each group sits in its own rounded island, the band reshapes itself to any width, and colors, labels and pill counts are configurable.",
   "types": "./types/index.d.ts",
   "author": {
@@ -116,7 +116,7 @@
     "showResetTime": {
       "type": "boolean",
       "title": "Show reset time",
-      "description": "The \u21bb countdown to the weekly reset.",
+      "description": "The ↻ countdown to the weekly reset.",
       "default": true
     },
     "pulse": {
@@ -172,6 +172,12 @@
       "title": "Band height",
       "description": "Height of the band in pixels; the islands' round ends are cut to it.",
       "default": 40
+    },
+    "islandHeight": {
+      "type": "number",
+      "title": "Island height",
+      "description": "Height of the islands in pixels. The band above and below them is painted in the gap color; set it to the band height for full-height islands.",
+      "default": 20
     },
     "bandPadding": {
       "type": "number",

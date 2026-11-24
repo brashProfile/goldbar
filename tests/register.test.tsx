@@ -220,9 +220,28 @@ test('shows the 5-hour window first', async ($, on) => {
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
   const texts = (await ui.findAll({ type: 'Text' })).map(t => t.text)
-  expect(texts.slice(0, 4)).toEqual(['0', '5-hour', '12%', 'Weekly'])
+  expect(texts.slice(0, 3)).toEqual(['5-hour', '12%', 'Weekly'])
   const bars = await ui.findAll({ type: 'Svg' })
-  expect(bars.filter(b => b.props.alt === 'gap')).toHaveLength(4)
+  // The ring island comes first and holds the count; it rounds the left end
+  // and cuts the first gap itself, leaving one gap piece and the right end.
+  const ringAt = bars.findIndex(b => b.props.alt === 'No background tasks running')
+  expect(ringAt).toBeGreaterThanOrEqual(0)
+  expect(ringAt).toBeLessThan(bars.findIndex(b => /used/.test(String(b.props.alt))))
+  expect(String(bars[ringAt]!.props.source)).toMatch(/<text[^>]*>0<\/text>/)
+  expect(String(bars[ringAt]!.props.source)).not.toContain('<animate')
+  expect(bars.filter(b => b.props.alt === 'gap')).toHaveLength(2)
+  // A spacer holds the ring's place in the row: it has a shape and an alt,
+  // since the app draws an empty one with no alt at no width.
+  const spacer = bars[ringAt - 1]!
+  expect(spacer.props.alt).toBe('spacer')
+  expect(spacer.props.width).toBe(12)
+  expect(String(spacer.props.source)).toContain('<rect')
+  // Islands are half the band's height: a run of tiles paints out the band
+  // above and below them, and the round ends are cut to the lower height.
+  const trim = bars.filter(b => b.props.alt === 'trim')
+  expect(trim.length).toBeGreaterThan(1)
+  expect(String(trim[0]!.props.source)).toContain('V14H0Z M0 34H')
+  expect(String(bars.find(b => b.props.alt === 'gap')!.props.source)).toContain('A10 10')
   expect((String(bars.filter(b => /used/.test(String(b.props.alt)))[0]!.props.source).match(/<g transform="translate/g) ?? []).length).toBe(5)
   await ui.unmount()
 })
@@ -240,7 +259,11 @@ test('a spinner shows while background work runs', async ($, on) => {
   expect((await ui.findAll({ type: 'Svg' })).some(x => x.props.alt === 'No background tasks running')).toBe(true)
 
   await $.tool.call({ tool: 'Bash', command: 'sleep 90', run_in_background: true })
-  expect((await ui.findAll({ type: 'Svg' })).some(x => x.props.alt === '1 background task running')).toBe(true)
+  const running = (await ui.findAll({ type: 'Svg' })).find(x => x.props.alt === '1 background task running')
+  expect(running).toBeDefined()
+  // The island's rim is the spinner: the count sits inside it and a dash runs around it.
+  expect(String(running!.props.source)).toMatch(/<text[^>]*>1<\/text>/)
+  expect(String(running!.props.source)).toContain('stroke-dashoffset')
 
   // eslint-disable-next-line
   await ($.session.append as (a: unknown) => Promise<unknown>)({
@@ -279,6 +302,26 @@ test(
   },
 )
 
+test(
+  'islandHeight at the band height keeps full-height islands, with no trim',
+  { options: { islandHeight: 40 } },
+  async ($, on) => {
+    mock.clock(on, { now: NOW })
+    mock.store(on)
+    on('session.start', (_, e) => ({ cwd: e.cwd }))
+    on('session.usage', () =>
+      usage([{ kind: 'seven_day', percentUsed: 30, resetsAt: new Date(NOW + 3 * DAY).toISOString() }]),
+    )
+    await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+    const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+    const svgs = await ui.findAll({ type: 'Svg' })
+    expect(svgs.filter(b => b.props.alt === 'trim')).toHaveLength(0)
+    expect(svgs.find(b => b.props.alt === 'spacer')?.props.width).toBe(32)
+    expect(String(svgs.find(b => b.props.alt === 'gap')!.props.source)).toContain('A20 20')
+    await ui.unmount()
+  },
+)
+
 test('the bars squish, roll up into rings and drop out as the band narrows', async ($, on) => {
   const clock = mock.clock(on, { now: NOW })
   mock.store(on)
@@ -306,14 +349,14 @@ test('the bars squish, roll up into rings and drop out as the band narrows', asy
   expect(wide.src('Weekly')).not.toContain('<animate')
 
   // A little narrower: the 5-hour pills squish, with a bounce; weekly does not.
-  const snug = await at(78)
+  const snug = await at(72)
   expect(snug.width('5-hour')).toBeLessThan(wide.width('5-hour'))
   expect(snug.width('Weekly')).toBe(wide.width('Weekly'))
   expect(snug.src('5-hour')).toContain('<animateTransform')
   expect(snug.src('Weekly')).not.toContain('<animate')
 
   // Narrower: the 5-hour bar rolls up into a ring; weekly keeps pills and countdown.
-  const rings = await at(73)
+  const rings = await at(63)
   expect(rings.src('5-hour')).toContain('<circle')
   expect(rings.width('Weekly')).toBe(wide.width('Weekly'))
   expect(rings.texts).toContain('↻ 3d 0h')
@@ -325,12 +368,12 @@ test('the bars squish, roll up into rings and drop out as the band narrows', asy
   expect(alone.texts).toContain('↻ 3d 0h')
 
   // Then the countdown goes.
-  const solo = await at(48)
+  const solo = await at(41)
   expect(solo.width('Weekly')).toBe(wide.width('Weekly'))
   expect(solo.texts).not.toContain('↻ 3d 0h')
 
   // Then its own pills squish into beads.
-  const beads = await at(39)
+  const beads = await at(34)
   expect(beads.width('Weekly')).toBeLessThan(wide.width('Weekly'))
 
   // Tiny: weekly rolls up too.

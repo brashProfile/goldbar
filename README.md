@@ -12,12 +12,12 @@
 
 goldbar is a [Claude Code](https://claude.com/claude-code) mod. It sits in the band directly above the prompt and shows how much of each usage limit you have spent:
 
-- **Background tasks**: at the far left, a gold ring that spins with a count while background shells, subagents or monitors are running, and sits still at 0 when nothing is.
+- **Background tasks**: the round island at the far left is itself a ring, with the count of running background shells, subagents and monitors in its middle. While any are running, the rim breathes and a bright gold comet runs around it; at 0 it sits still and faint.
 - **5-hour**: the rolling session window.
 - **Weekly**: the all-models weekly limit, with `↻` and the time until it resets.
 - **Fable**: one model's own weekly limit (Fable by default; any model `/usage` lists).
 
-Each group sits in its own rounded island, with the page showing between them and the contents centered. The pills fill left to right through deepening shades of gold. While Claude is working on a turn, a swell runs along the pills from left to right, so you can see at a glance that it is busy.
+Each group sits in its own slim rounded island, with the page showing between them and the contents centered. The pills fill left to right through deepening shades of gold. While Claude is working on a turn, a swell runs along the pills from left to right, so you can see at a glance that it is busy.
 
 <p align="center">
   <img src="assets/band-light.svg" alt="goldbar in light mode, with no background tasks running">
@@ -72,7 +72,7 @@ Every color, label and count is a setting. In a terminal session run `/plugin`, 
 
 | Setting | Default | What it does |
 |---|---|---|
-| `showBackground` | `true` | Spinner and count of running background tasks |
+| `showBackground` | `true` | The ring island with the count of running background tasks |
 | `showSession` | `true` | The 5-hour bar |
 | `showWeekly` | `true` | The weekly bar |
 | `showModel` | `true` | The model bar |
@@ -95,7 +95,8 @@ Every color, label and count is a setting. In a terminal session run `/plugin`, 
 | `islands` | `true` | Each group is its own rounded island with the page showing between them; off gives one flat bar with divider lines |
 | `gapColor` | `#191919` | Color painted between the islands; set it to the app's page background |
 | `islandGap` | `8` | Pixels between islands |
-| `bandHeight` | `40` | Height of the band in pixels; the islands' round ends are cut to it |
+| `bandHeight` | `40` | Height of the app's band in pixels, which the cover pieces are cut to |
+| `islandHeight` | `20` | Height of the islands in pixels; the band above and below them is painted in the gap color. Set it to `bandHeight` for full-height islands |
 | `bandPadding` | `8` | Pixels between the band's edge and its content, left and right |
 | `columnPixels` | `8` | How wide one text column is taken to be when fitting the bars; raise it if they shrink too late |
 | `bounce` | `true` | Pills and rings bounce when they change shape |
